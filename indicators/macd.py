@@ -85,6 +85,119 @@ def tonghuashun_macd(
     return df
 
 
+def find_macd_crossovers(
+    df: pd.DataFrame,
+    dif_col: str = "DIF",
+    dea_col: str = "DEA",
+    date_col: str | None = None,
+) -> pd.DataFrame:
+    """
+    Find MACD crossovers and identify their type.
+
+    Detects when DIF (MACD line) crosses DEA (Signal line):
+    - Golden Cross (Bullish): DIF crosses above DEA
+    - Death Cross (Bearish): DIF crosses below DEA
+
+    Args:
+        df: DataFrame with MACD data (must have DIF and DEA columns)
+        dif_col: Column name for DIF (default "DIF")
+        dea_col: Column name for DEA (default "DEA")
+        date_col: Column name for dates (auto-detected if None)
+
+    Returns:
+        DataFrame with crossover information:
+        - date: Date of crossover
+        - type: "golden" or "death"
+        - dif: DIF value at crossover
+        - dea: DEA value at crossover
+        - macd: MACD histogram value at crossover
+        - close_price: Closing price at crossover (if available)
+
+    Example:
+        >>> df = tonghuashun_macd(price_data)
+        >>> crossovers = find_macd_crossovers(df)
+        >>> print(crossovers[['date', 'type', 'dif', 'dea']])
+    """
+    df = df.copy()
+
+    # Validate required columns
+    if dif_col not in df.columns:
+        raise ValueError(f"DIF column '{dif_col}' not found. Available columns: {list(df.columns)}")
+    if dea_col not in df.columns:
+        raise ValueError(f"DEA column '{dea_col}' not found. Available columns: {list(df.columns)}")
+
+    # Auto-detect date column if not provided
+    if date_col is None:
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if "date" in col_lower or "timestamp" in col_lower or "时间" in str(col):
+                date_col = col
+                break
+
+    if date_col is None:
+        date_col = df.columns[0]  # Use first column as fallback
+
+    # Sort by date to ensure proper order
+    if date_col in df.columns:
+        df = df.sort_values(by=date_col)
+
+    # Detect crossovers
+    # Golden cross: DIF was below/equal DEA, now above
+    # Death cross: DIF was above/equal DEA, now below
+    df["prev_DIF"] = df[dif_col].shift(1)
+    df["prev_DEA"] = df[dea_col].shift(1)
+
+    # Golden cross: DIF crosses above DEA
+    golden_cross = (df[dif_col] > df[dea_col]) & (df["prev_DIF"] <= df["prev_DEA"])
+
+    # Death cross: DIF crosses below DEA
+    death_cross = (df[dif_col] < df[dea_col]) & (df["prev_DIF"] >= df["prev_DEA"])
+
+    # Combine crossovers
+    df["crossover"] = golden_cross | death_cross
+    df["crossover_type"] = "none"
+    df.loc[golden_cross, "crossover_type"] = "golden"
+    df.loc[death_cross, "crossover_type"] = "death"
+
+    # Extract crossover information
+    crossovers = df[df["crossover"]].copy()
+    if crossovers.empty:
+        return pd.DataFrame(columns=["date", "type", "dif", "dea", "macd", "close_price"])
+
+    # Get closing price column if available
+    close_col = None
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if "close" in col_lower or "收盘" in str(col):
+            close_col = col
+            break
+
+    # Build result DataFrame
+    result_data = {
+        "date": crossovers[date_col],
+        "type": crossovers["crossover_type"],
+        "dif": crossovers[dif_col],
+        "dea": crossovers[dea_col],
+    }
+
+    # Add MACD histogram if available
+    if "MACD" in df.columns:
+        result_data["macd"] = crossovers["MACD"]
+    elif "macd" in df.columns:
+        result_data["macd"] = crossovers["macd"]
+
+    # Add closing price if available
+    if close_col:
+        result_data["close_price"] = crossovers[close_col]
+
+    result = pd.DataFrame(result_data)
+
+    # Clean up temporary columns
+    df.drop(columns=["prev_DIF", "prev_DEA", "crossover", "crossover_type"], errors="ignore")
+
+    return result
+
+
 def calculate_tonghuashun_macd(
     stock_code: str,
     start_date: str,

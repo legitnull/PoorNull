@@ -1,0 +1,7 @@
+akshare-one>=0.3.17
+akshare>=1.18.9
+pandas>=2.0.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+pandas-ta>=0.3.14b0
