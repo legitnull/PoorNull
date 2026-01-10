@@ -3,7 +3,7 @@
 import pandas as pd
 from akshare_one import get_hist_data
 
-from indicators import find_macd_crossovers, tonghuashun_macd
+from poornull.indicators import find_macd_crossovers, tonghuashun_macd
 
 
 def inspect_akshare_one_columns(stock_code, start_date, end_date):
