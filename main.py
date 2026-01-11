@@ -1,9 +1,18 @@
-"""Simple script to verify akshare-one API and demonstrate MACD calculation."""
+"""Fetch stock data and compute MA/EMA indicators for different timeframes."""
+
+from datetime import datetime, timedelta
 
 import pandas as pd
-from akshare_one import get_hist_data
 
-from poornull.indicators import find_macd_crossovers, tonghuashun_macd
+from poornull.data import Period, download_daily, download_monthly, download_weekly
+from poornull.indicators import (
+    calculate_ma_ema,
+    calculate_weekly_ma,
+    find_ma_above_ma60,
+    find_ma_crossovers,
+    find_macd_crossovers,
+    tonghuashun_macd,
+)
 
 
 def inspect_akshare_one_columns(stock_code, start_date, end_date):
@@ -19,6 +28,8 @@ def inspect_akshare_one_columns(stock_code, start_date, end_date):
     Returns:
         DataFrame with sample data and column information
     """
+    from akshare_one import get_hist_data
+
     # Convert date format
     start_date_formatted = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
     end_date_formatted = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
@@ -70,6 +81,8 @@ def get_stock_macd_crossovers(stock_code: str, start_date: str, end_date: str):
     Returns:
         Tuple of (stock_data_with_macd, crossovers_df)
     """
+    from akshare_one import get_hist_data
+
     # Fetch stock data using akshare-one
     start_date_formatted = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
     end_date_formatted = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
@@ -110,61 +123,162 @@ def get_stock_macd_crossovers(stock_code: str, start_date: str, end_date: str):
     return stock_data_with_macd, crossovers
 
 
+def process_stock_ma_ema(
+    stock_code: str,
+    period: Period = Period.DAILY,
+    days_back: int = 1000,
+    ma_periods: list[int] | None = None,
+    ema_periods: list[int] | None = None,
+) -> pd.DataFrame:
+    """
+    Fetch stock data and compute MA/EMA for specified timeframe.
+
+    Args:
+        stock_code: Stock code (e.g., "600036")
+        period: Timeframe period (DAILY, WEEKLY, or MONTHLY)
+        days_back: Number of days/weeks/months to fetch (default: 1000)
+        ma_periods: List of MA periods to compute (default: [5, 10, 20, 30, 60])
+        ema_periods: List of EMA periods to compute (default: [5, 10, 20, 30, 60])
+
+    Returns:
+        DataFrame with MA and EMA columns
+    """
+    # Calculate date range
+    end_date = datetime.now()
+    if period == Period.DAILY:
+        start_date = end_date - timedelta(days=days_back)
+    elif period == Period.WEEKLY:
+        start_date = end_date - timedelta(weeks=days_back)
+    elif period == Period.MONTHLY:
+        # Approximate months as 30 days
+        start_date = end_date - timedelta(days=days_back * 30)
+    else:
+        start_date = end_date - timedelta(days=days_back)
+
+    start_date_str = start_date.strftime("%Y%m%d")
+    end_date_str = end_date.strftime("%Y%m%d")
+
+    period_name = period.value.capitalize()
+
+    print(f"📊 Fetching {period_name} data for {stock_code}")
+    print(f"   Date range: {start_date_str} to {end_date_str} (last {days_back} {period_name.lower()}s)")
+
+    # Download data based on period
+    if period == Period.DAILY:
+        df = download_daily(stock_code, start_date_str, end_date_str)
+    elif period == Period.WEEKLY:
+        df = download_weekly(stock_code, start_date_str, end_date_str)
+    elif period == Period.MONTHLY:
+        df = download_monthly(stock_code, start_date_str, end_date_str)
+    else:
+        df = download_daily(stock_code, start_date_str, end_date_str)
+
+    print(f"✅ Fetched {len(df)} records")
+
+    # Calculate MA and EMA
+    print("\n📈 Calculating MA and EMA...")
+    df = calculate_ma_ema(df, ma_periods=ma_periods, ema_periods=ema_periods)
+
+    return df
+
+
 def main():
-    """Query stock 600036 closing price and MACD on 2026-01-09."""
-    from datetime import datetime, timedelta
+    """Main function to fetch data and compute MA/EMA for different timeframes."""
+    stock_code = "600036"  # Default stock: 招商银行
 
-    stock_code = "600036"
-    target_date = "2026-01-09"
-
-    print("Querying stock 600036 closing price on 2026-01-09...")
-    print("-" * 50)
+    print("=" * 80)
+    print("Stock MA/EMA Calculator")
+    print("=" * 80)
+    print(f"\nStock: {stock_code}")
+    print("Fetching last 1000 days/weeks/months till today")
+    print()
 
     try:
-        # Fetch data around target date
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=1000)).strftime("%Y-%m-%d")
+        # Process daily data
+        print("\n" + "=" * 80)
+        print("📅 DAILY DATA (日线)")
+        print("=" * 80)
+        daily_df = process_stock_ma_ema(stock_code, Period.DAILY, days_back=1000)
 
-        print(f"\n📊 Fetching stock {stock_code} data...")
-        print(f"   Date range: {start_date} to {end_date} (last 1000 days)")
+        # Show latest values
+        ma_cols = [col for col in daily_df.columns if col.startswith("MA")]
+        ema_cols = [col for col in daily_df.columns if col.startswith("EMA")]
+        display_cols = ["date", "close"] + ma_cols[:3] + ema_cols[:3]  # Show first 3 of each
 
-        stock_data = get_hist_data(symbol=stock_code, interval="day", start_date=start_date, end_date=end_date)
+        print("\n📊 Latest Daily MA/EMA Values:")
+        print(daily_df[display_cols].tail(10).to_string(index=False))
 
-        if stock_data.empty:
-            print(f"❌ Failed to fetch data for stock {stock_code}")
-            return
+        # Process weekly data
+        print("\n" + "=" * 80)
+        print("📅 WEEKLY DATA (周线)")
+        print("=" * 80)
+        weekly_df = process_stock_ma_ema(stock_code, Period.WEEKLY, days_back=1000)
 
-        # Rename timestamp to date
-        if "timestamp" in stock_data.columns:
-            stock_data = stock_data.rename(columns={"timestamp": "date"})
-            stock_data["date"] = pd.to_datetime(stock_data["date"])
+        print("\n📊 Latest Weekly MA/EMA Values:")
+        print(weekly_df[display_cols].tail(10).to_string(index=False))
 
-        print(f"✅ Successfully fetched {len(stock_data)} records")
+        # Process monthly data
+        print("\n" + "=" * 80)
+        print("📅 MONTHLY DATA (月线)")
+        print("=" * 80)
+        monthly_df = process_stock_ma_ema(stock_code, Period.MONTHLY, days_back=1000)
 
-        # Calculate MACD
-        print("\n📊 Calculating MACD using Tonghuashun method...")
-        stock_data = tonghuashun_macd(
-            stock_data, close_col="close", fast=12, slow=26, signal=9, histogram_multiplier=2.0
-        )
+        print("\n📊 Latest Monthly MA/EMA Values:")
+        print(monthly_df[display_cols].tail(10).to_string(index=False))
 
-        # Find target date
-        target_datetime = pd.to_datetime(target_date)
-        stock_data["_date_only"] = pd.to_datetime(stock_data["date"]).dt.date
-        target_date_only = target_datetime.date()
-        target_row = stock_data[stock_data["_date_only"] == target_date_only]
-        stock_data = stock_data.drop(columns=["_date_only"])
+        # Process weekly MA crossovers
+        print("\n" + "=" * 80)
+        print("📊 WEEKLY MA CROSSOVERS ANALYSIS")
+        print("=" * 80)
 
-        if target_row.empty:
-            print(f"\n⚠️  No data found for {target_date}")
-            print("\nAvailable dates (last 10):")
-            print(stock_data[["date"]].tail(10))
+        # Calculate weekly MA with specific periods
+        weekly_ma_df = calculate_weekly_ma(weekly_df, periods=[20, 30, 60, 120, 250])
+
+        # Find crossovers
+        crossovers = find_ma_crossovers(weekly_ma_df)
+
+        if crossovers.empty:
+            print("\n⚠️  No MA crossovers found")
         else:
-            print(f"\n✅ Found data for {target_date}:")
-            row = target_row.iloc[0]
-            print(f"   Close: {row['close']:.2f}")
-            print(f"   DIF: {row['DIF']:.4f}")
-            print(f"   DEA: {row['DEA']:.4f}")
-            print(f"   MACD: {row['MACD']:.4f}")
+            print(f"\n✅ Found {len(crossovers)} MA crossover(s):\n")
+            for _, row in crossovers.iterrows():
+                cross_type = row["type"]
+                if "golden" in cross_type:
+                    cross_symbol = "🟢"
+                    cross_name = "Golden Cross"
+                    ma_type = "MA20" if "ma20" in cross_type else "MA30"
+                    cross_name = f"{cross_name} ({ma_type} crosses above MA60)"
+                else:
+                    cross_symbol = "🔴"
+                    cross_name = "Death Cross"
+                    ma_type = "MA20" if "ma20" in cross_type else "MA30"
+                    cross_name = f"{cross_name} ({ma_type} crosses below MA60)"
+
+                print(f"{cross_symbol} {cross_name}")
+                print(f"   Date: {row['date']}")
+                print(f"   MA20: {row['ma20']:.2f}")
+                print(f"   MA30: {row['ma30']:.2f}")
+                print(f"   MA60: {row['ma60']:.2f}")
+                if pd.notna(row.get("close_price")):
+                    print(f"   Close Price: {row['close_price']:.2f}")
+                print()
+
+        # Find periods where MA20 or MA30 beats MA60
+        above_periods = find_ma_above_ma60(weekly_ma_df)
+
+        if above_periods.empty:
+            print("\n⚠️  No periods where MA20 or MA30 is above MA60")
+        else:
+            print(f"\n✅ Found {len(above_periods)} periods where MA20 or MA30 beats MA60")
+            print("\n📊 Latest periods (last 10):")
+            display_cols = ["date", "ma20_above", "ma30_above", "ma20", "ma30", "ma60"]
+            if "close_price" in above_periods.columns:
+                display_cols.append("close_price")
+            print(above_periods[display_cols].tail(10).to_string(index=False))
+
+        print("\n" + "=" * 80)
+        print("✅ All calculations complete!")
+        print("=" * 80)
 
     except Exception as e:
         print(f"❌ Error occurred: {e}")
@@ -231,6 +345,4 @@ def test_macd():
 
 
 if __name__ == "__main__":
-    # Uncomment to test MACD functionality
-    test_macd()
-    # main()
+    main()
