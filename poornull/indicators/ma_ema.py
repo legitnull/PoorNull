@@ -6,6 +6,8 @@ This module provides functions to calculate MA and EMA for different periods.
 
 import pandas as pd
 
+from poornull.data.models import PriceHistory
+
 
 def calculate_ma(
     df: pd.DataFrame,
@@ -148,3 +150,100 @@ def calculate_ma_ema(
     df = calculate_ma(df, close_col=close_col, periods=ma_periods)
     df = calculate_ema(df, close_col=close_col, periods=ema_periods, adjust=ema_adjust)
     return df
+
+
+# ===== PriceHistory API =====
+
+
+def with_ma(
+    history: PriceHistory,
+    periods: list[int] | None = None,
+) -> PriceHistory:
+    """
+    Add Moving Average (MA) indicators to PriceHistory.
+
+    Args:
+        history: PriceHistory object with price data
+        periods: List of periods for MA calculation (default: [5, 10, 20, 30, 60])
+
+    Returns:
+        New PriceHistory with MA columns added (MA5, MA10, MA20, etc.)
+
+    Example:
+        >>> from poornull.data import PriceHistory
+        >>> from poornull.data import download_daily
+        >>> df = download_daily("600036", "20240101", "20241231")
+        >>> history = PriceHistory(df)
+        >>> history = with_ma(history, periods=[5, 10, 20, 30, 60, 250])
+        >>> print(f"Has MA250: {history.has_indicator('MA250')}")
+    """
+    if periods is None:
+        periods = [5, 10, 20, 30, 60]
+
+    df = history.df
+
+    for period in periods:
+        df[f"MA{period}"] = df["close"].rolling(window=period, min_periods=1).mean()
+
+    return PriceHistory(df)
+
+
+def with_ema(
+    history: PriceHistory,
+    periods: list[int] | None = None,
+    adjust: bool = False,
+) -> PriceHistory:
+    """
+    Add Exponential Moving Average (EMA) indicators to PriceHistory.
+
+    Args:
+        history: PriceHistory object with price data
+        periods: List of periods for EMA calculation (default: [5, 10, 20, 30, 60])
+        adjust: Whether to use adjusted EMA calculation (default: False)
+
+    Returns:
+        New PriceHistory with EMA columns added (EMA5, EMA10, EMA20, etc.)
+
+    Example:
+        >>> history = with_ema(history, periods=[12, 26])
+        >>> print(f"Has EMA12: {history.has_indicator('EMA12')}")
+    """
+    if periods is None:
+        periods = [5, 10, 20, 30, 60]
+
+    df = history.df
+
+    for period in periods:
+        df[f"EMA{period}"] = df["close"].ewm(span=period, adjust=adjust).mean()
+
+    return PriceHistory(df)
+
+
+def with_ma_ema(
+    history: PriceHistory,
+    ma_periods: list[int] | None = None,
+    ema_periods: list[int] | None = None,
+    ema_adjust: bool = False,
+) -> PriceHistory:
+    """
+    Add both MA and EMA indicators to PriceHistory.
+
+    Args:
+        history: PriceHistory object with price data
+        ma_periods: List of periods for MA calculation (default: [5, 10, 20, 30, 60])
+        ema_periods: List of periods for EMA calculation (default: [5, 10, 20, 30, 60])
+        ema_adjust: Whether to use adjusted EMA calculation (default: False)
+
+    Returns:
+        New PriceHistory with MA and EMA columns added
+
+    Example:
+        >>> history = PriceHistory(df)
+        >>> history = with_ma_ema(history, ma_periods=[5, 10, 20], ema_periods=[12, 26])
+        >>> # Or chain them:
+        >>> history = with_ma(history, [5, 10, 20, 30, 60, 250])
+        >>> history = with_ema(history, [12, 26])
+    """
+    history = with_ma(history, periods=ma_periods)
+    history = with_ema(history, periods=ema_periods, adjust=ema_adjust)
+    return history

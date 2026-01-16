@@ -7,7 +7,13 @@ This module provides MACD calculation that matches Tonghuashun's values:
 - Returns columns named DIF, DEA, MACD (matching Tonghuashun terminology)
 """
 
+import logging
+
 import pandas as pd
+
+from poornull.data.models import PriceHistory
+
+logger = logging.getLogger(__name__)
 
 
 def tonghuashun_macd(
@@ -263,17 +269,16 @@ def main():
     end_date = datetime.now()
     start_date = end_date - timedelta(days=730)  # ~2 years for proper warm-up
 
-    print("=" * 80)
-    print("Tonghuashun MACD Calculation Test")
-    print("=" * 80)
-    print(f"\nStock: {stock_code}")
-    print(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-    print("Using: UNADJUSTED prices (不复权) - as Tonghuashun does")
-    print()
+    logger.info("=" * 80)
+    logger.info("Tonghuashun MACD Calculation Test")
+    logger.info("=" * 80)
+    logger.info(f"Stock: {stock_code}")
+    logger.info(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+    logger.info("Using: UNADJUSTED prices (不复权) - as Tonghuashun does")
 
     try:
         # Fetch data
-        print("📊 Fetching data...")
+        logger.info("Fetching data...")
         df = ak.stock_zh_a_hist(
             symbol=stock_code,
             period="daily",
@@ -283,7 +288,7 @@ def main():
         )
 
         if df.empty:
-            print(f"❌ No data found for stock {stock_code}")
+            logger.error(f"No data found for stock {stock_code}")
             return
 
         # Convert column names
@@ -298,50 +303,99 @@ def main():
         df = df.rename(columns=column_mapping)
         df["date"] = pd.to_datetime(df["date"])
 
-        print(f"✅ Fetched {len(df)} records")
-        print(f"   Date range: {df['date'].min()} to {df['date'].max()}")
-        print()
+        logger.info(f"Fetched {len(df)} records")
+        logger.info(f"   Date range: {df['date'].min()} to {df['date'].max()}")
 
         # Calculate MACD using the indicator function
-        print("📈 Calculating MACD (Tonghuashun settings)...")
-        print("   - Fast EMA: 12")
-        print("   - Slow EMA: 26")
-        print("   - Signal EMA: 9")
-        print("   - Histogram multiplier: 2.0")
-        print()
+        logger.info("Calculating MACD (Tonghuashun settings)...")
+        logger.info("   - Fast EMA: 12")
+        logger.info("   - Slow EMA: 26")
+        logger.info("   - Signal EMA: 9")
+        logger.info("   - Histogram multiplier: 2.0")
 
         df = tonghuashun_macd(df, close_col="close", fast=12, slow=26, signal=9, histogram_multiplier=2.0)
 
         # Show last 10 days
-        print("=" * 80)
-        print(f"📊 MACD VALUES FOR STOCK {stock_code} (Last 10 days)")
-        print("=" * 80)
-        print("\nDate       | Close  |   DIF   |   DEA   |  MACD")
-        print("-" * 60)
+        logger.info("=" * 80)
+        logger.info(f"MACD VALUES FOR STOCK {stock_code} (Last 10 days)")
+        logger.info("=" * 80)
+        logger.info("\nDate       | Close  |   DIF   |   DEA   |  MACD")
+        logger.info("-" * 60)
 
         for _, row in df.tail(10).iterrows():
             date_str = row["date"].strftime("%Y-%m-%d")
-            print(f"{date_str} | {row['close']:6.2f} | {row['DIF']:7.4f} | {row['DEA']:7.4f} | {row['MACD']:6.4f}")
+            logger.info(
+                f"{date_str} | {row['close']:6.2f} | {row['DIF']:7.4f} | {row['DEA']:7.4f} | {row['MACD']:6.4f}"
+            )
 
-        print("\n" + "=" * 80)
-        print("✅ Calculation complete!")
-        print("=" * 80)
-        print("\n💡 KEY POINTS:")
-        print("   1. Tonghuashun uses UNADJUSTED (不复权) prices for MACD calculation")
-        print("   2. Tonghuashun uses 2x multiplier for MACD histogram display")
-        print("   3. DIF = Fast EMA - Slow EMA")
-        print("   4. DEA = Signal line (EMA of DIF)")
-        print("   5. MACD = (DIF - DEA) × 2  ← Note the 2x multiplier!")
-        print("=" * 80)
+        logger.info("\n" + "=" * 80)
+        logger.info("Calculation complete!")
+        logger.info("=" * 80)
+        logger.info("KEY POINTS:")
+        logger.info("   1. Tonghuashun uses UNADJUSTED (不复权) prices for MACD calculation")
+        logger.info("   2. Tonghuashun uses 2x multiplier for MACD histogram display")
+        logger.info("   3. DIF = Fast EMA - Slow EMA")
+        logger.info("   4. DEA = Signal line (EMA of DIF)")
+        logger.info("   5. MACD = (DIF - DEA) × 2  ← Note the 2x multiplier!")
+        logger.info("=" * 80)
 
         return df
 
     except Exception as e:
-        print(f"❌ Error: {e}")
-        import traceback
-
-        traceback.print_exc()
+        logger.error(f"Error: {e}", exc_info=True)
         return None
+
+
+# ===== PriceHistory API =====
+
+
+def with_macd(
+    history: PriceHistory,
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+    histogram_multiplier: float = 2.0,
+) -> PriceHistory:
+    """
+    Add MACD indicators to PriceHistory (Tonghuashun-compatible).
+
+    Args:
+        history: PriceHistory object with price data
+        fast: Fast EMA period (default 12)
+        slow: Slow EMA period (default 26)
+        signal: Signal line EMA period (default 9)
+        histogram_multiplier: Multiplier for histogram (default 2.0 for Tonghuashun)
+
+    Returns:
+        New PriceHistory with MACD columns added:
+        - DIF: Fast EMA - Slow EMA (MACD line)
+        - DEA: Signal line, EMA of DIF
+        - MACD: Histogram with multiplier applied
+
+    Example:
+        >>> from poornull.data import PriceHistory
+        >>> from poornull.data import download_daily
+        >>> df = download_daily("600036", "20240101", "20241231")
+        >>> history = PriceHistory(df)
+        >>> history = with_macd(history)
+        >>> print(f"Has MACD: {history.has_indicator('MACD')}")
+    """
+    df = history.df
+
+    # Calculate EMAs
+    ema_fast = df["close"].ewm(span=fast, adjust=False).mean()
+    ema_slow = df["close"].ewm(span=slow, adjust=False).mean()
+
+    # MACD line (DIF)
+    df["DIF"] = ema_fast - ema_slow
+
+    # Signal line (DEA)
+    df["DEA"] = df["DIF"].ewm(span=signal, adjust=False).mean()
+
+    # Histogram (MACD)
+    df["MACD"] = (df["DIF"] - df["DEA"]) * histogram_multiplier
+
+    return PriceHistory(df)
 
 
 if __name__ == "__main__":
